@@ -23,7 +23,7 @@ def test_health(api_client: TestClient) -> None:
     resp = api_client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "ok"
+    assert data["status"] == "broken"  # Deliberate failure for CI testing
 
 
 # ---------------------------------------------------------------------------
