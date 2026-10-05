@@ -32,57 +32,104 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap');
+
     /* ---- global ---- */
-    body { font-family: 'Segoe UI', sans-serif; }
+    .stApp {
+        background-color: #0b110e;
+        color: #e2e8f0;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    h1, h2, h3 {
+        font-family: 'Playfair Display', serif !important;
+        color: #ffffff !important;
+    }
 
     /* ---- header banner ---- */
     .header-banner {
-        background: linear-gradient(135deg, #1a237e 0%, #283593 60%, #3949ab 100%);
-        border-radius: 12px;
-        padding: 28px 36px;
+        background: transparent;
+        padding: 40px 0px 24px;
         margin-bottom: 24px;
-        color: white;
     }
-    .header-banner h1 { margin: 0; font-size: 2rem; }
-    .header-banner p  { margin: 4px 0 0; opacity: 0.85; font-size: 0.95rem; }
+    .header-banner h1 { 
+        margin: 0; 
+        font-size: 3.5rem !important; 
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+    }
+    .header-banner p { 
+        margin: 16px 0 0; 
+        color: #94a3b8; 
+        font-size: 1.1rem; 
+        max-width: 600px;
+        line-height: 1.5;
+    }
 
     /* ---- review banner ---- */
     .review-banner {
-        background: #fff3e0;
-        border-left: 6px solid #ff6f00;
+        background: #141b17;
+        border-left: 4px solid #00e676;
         border-radius: 8px;
         padding: 16px 20px;
         margin: 16px 0;
-        font-weight: 600;
-        color: #bf360c;
-        font-size: 1.05rem;
+        color: #00e676;
+        font-size: 1rem;
     }
 
     /* ---- result card ---- */
     .result-card {
-        background: #f5f5f5;
-        border-radius: 10px;
-        padding: 20px 24px;
-        margin-top: 8px;
+        background: #111a15;
+        border: 1px solid #1c2a22;
+        border-radius: 12px;
+        padding: 24px;
+        margin-top: 16px;
+    }
+    
+    /* ---- inputs ---- */
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea {
+        background-color: #111a15 !important;
+        color: white !important;
+        border: 1px solid #1c2a22 !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput > div > div > input:focus, .stTextArea > div > div > textarea:focus {
+        border-color: #00e676 !important;
+        box-shadow: 0 0 0 1px #00e676 !important;
+    }
+    
+    /* ---- submit button ---- */
+    .stButton > button {
+        background-color: #00e676 !important;
+        color: #000000 !important;
+        font-weight: 600 !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button:hover {
+        background-color: #00c853 !important;
+        transform: translateY(-1px);
     }
 
     /* ---- category badge ---- */
-    .badge-electrical { background:#1565C0; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
-    .badge-plumbing   { background:#00695C; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
-    .badge-heating    { background:#BF360C; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
+    .badge-electrical { background:#1e3a8a; color:#bfdbfe; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
+    .badge-plumbing   { background:#064e3b; color:#a7f3d0; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
+    .badge-heating    { background:#7f1d1d; color:#fecaca; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
 
     /* ---- priority badge ---- */
-    .priority-low    { background:#388E3C; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
-    .priority-medium { background:#F57F17; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
-    .priority-high   { background:#B71C1C; color:white; padding:4px 12px; border-radius:20px; font-size:0.85rem; }
+    .priority-low    { background:#064e3b; color:#a7f3d0; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
+    .priority-medium { background:#78350f; color:#fde68a; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
+    .priority-high   { background:#7f1d1d; color:#fecaca; padding:4px 12px; border-radius:20px; font-size:0.85rem; font-weight: 500; }
 
     /* ---- history table ---- */
     .hist-row {
-        background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 8px;
+        background: #111a15;
+        border: 1px solid #1c2a22;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
     }
     </style>
     """,
