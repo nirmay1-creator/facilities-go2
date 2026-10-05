@@ -1,0 +1,25 @@
+{
+  "group_id": "g02",
+  "categories": [
+    {
+      "name": "electrical",
+      "description": "Issues related to electrical systems, lighting, power outlets, circuit breakers.",
+      "example": "Meeting room lights fail"
+    },
+    {
+      "name": "plumbing",
+      "description": "Issues related to water pipes, leaks, drainage, taps, toilets.",
+      "example": "Water leak in corridor"
+    },
+    {
+      "name": "heating",
+      "description": "Issues related to heating systems, radiators, boilers, thermostats.",
+      "example": "Radiator stays cold"
+    }
+  ],
+  "routing_instructions": {
+    "electrical": "Route to Electrical Maintenance team. Flag for supervisor review before scheduling.",
+    "plumbing": "Route to Plumbing Maintenance team. If active leak, escalate immediately to on-call.",
+    "heating": "Route to HVAC/Heating Maintenance team. Priority-assess before winter period."
+  }
+}
