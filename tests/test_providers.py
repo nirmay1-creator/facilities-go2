@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 
-from facilities.models import AnalysisRequest, AnalysisResult
+from facilities.models import AnalysisRequest
 from facilities.providers.base import AnalysisProvider
 from facilities.providers.mock_provider import MockProvider
 from facilities.providers.lmstudio_provider import LmStudioProvider
@@ -44,32 +44,38 @@ FIXTURES = [
     # (subject, request_text, expected_category)
     (
         "Meeting room lights fail",
-        "The lights in meeting room B3 stopped working completely. The room has been dark since yesterday morning.",
+        "The lights in meeting room B3 stopped working completely. "
+        "The room has been dark since yesterday morning.",
         "electrical",
     ),
     (
         "Power outlet sparking in lab",
-        "A power socket in the computer lab on floor 2 is sparking when a plug is inserted.",
+        "A power socket in the computer lab on floor 2 is sparking "
+        "when a plug is inserted.",
         "electrical",
     ),
     (
         "Water leak in corridor",
-        "There is a visible water leak coming from the ceiling pipe in the main corridor near room 105.",
+        "There is a visible water leak coming from the ceiling pipe "
+        "in the main corridor near room 105.",
         "plumbing",
     ),
     (
         "Blocked sink in staff kitchen",
-        "The sink drain in the staff kitchen on level 3 is completely blocked and the sink is overflowing.",
+        "The sink drain in the staff kitchen on level 3 is completely "
+        "blocked and the sink is overflowing.",
         "plumbing",
     ),
     (
         "Radiator stays cold",
-        "The radiator in office 204 has not been working for two weeks. The room temperature is very low.",
+        "The radiator in office 204 has not been working for two weeks. "
+        "The room temperature is very low.",
         "heating",
     ),
     (
         "Boiler making loud noise",
-        "The boiler in the basement plant room is making a loud banging noise every time heating starts.",
+        "The boiler in the basement plant room is making a loud banging "
+        "noise every time heating starts.",
         "heating",
     ),
 ]
@@ -77,12 +83,16 @@ FIXTURES = [
 
 @pytest.mark.parametrize("subject,text,expected_category", FIXTURES)
 def test_fixture_classification(
-    subject: str, text: str, expected_category: str
+    subject: str,
+    text: str,
+    expected_category: str,
 ) -> None:
     provider = MockProvider()
     result = provider.analyze(_req(subject, text))
+
     assert result.category == expected_category, (
-        f"Expected {expected_category!r} for '{subject}', got {result.category!r}"
+        f"Expected {expected_category!r} for '{subject}', "
+        f"got {result.category!r}"
     )
     assert result.requires_review is True
     assert result.priority in ("low", "medium", "high")
@@ -91,9 +101,12 @@ def test_fixture_classification(
 
 
 # ---------------------------------------------------------------------------
-# Test 8: Fake HTTP transport (LmStudioProvider with mock transport)
+# Test 8: Fake HTTP transport
 # ---------------------------------------------------------------------------
-def _make_mock_transport(json_body: dict | str, status_code: int = 200):
+def _make_mock_transport(
+    json_body: dict | str,
+    status_code: int = 200,
+) -> httpx.MockTransport:
     """Return an httpx.MockTransport that replies with the given body."""
     if isinstance(json_body, dict):
         body_bytes = json.dumps(json_body).encode()
@@ -114,7 +127,12 @@ def _lm_response(content: str) -> dict:
     """Build a minimal LM Studio chat-completions response envelope."""
     return {
         "choices": [
-            {"message": {"role": "assistant", "content": content}}
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                }
+            }
         ]
     }
 
@@ -135,7 +153,14 @@ def test_fake_http_transport_valid() -> None:
     transport = _make_mock_transport(_lm_response(VALID_PAYLOAD))
     client = httpx.Client(transport=transport)
     provider = LmStudioProvider(http_client=client)
-    result = provider.analyze(_req("Meeting room lights fail", "The lights stopped working completely."))
+
+    result = provider.analyze(
+        _req(
+            "Meeting room lights fail",
+            "The lights stopped working completely.",
+        )
+    )
+
     assert result.category == "electrical"
     assert result.requires_review is True
 
@@ -154,7 +179,12 @@ def test_lmstudio_timeout() -> None:
     provider = LmStudioProvider(http_client=client, timeout=1)
 
     with pytest.raises(httpx.ReadTimeout):
-        provider.analyze(_req("Test timeout", "This should trigger a timeout from the provider."))
+        provider.analyze(
+            _req(
+                "Test timeout",
+                "This should trigger a timeout from the provider.",
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -162,12 +192,18 @@ def test_lmstudio_timeout() -> None:
 # ---------------------------------------------------------------------------
 def test_malformed_json_raises() -> None:
     bad_content = "This is not JSON at all, just text."
+
     transport = _make_mock_transport(_lm_response(bad_content))
     client = httpx.Client(transport=transport)
     provider = LmStudioProvider(http_client=client)
 
     with pytest.raises(ValueError, match="malformed JSON"):
-        provider.analyze(_req("Broken light", "The light in the hallway stopped working."))
+        provider.analyze(
+            _req(
+                "Broken light",
+                "The light in the hallway stopped working.",
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -178,17 +214,23 @@ def test_unknown_category_raises() -> None:
         {
             "summary": "Something happened to a widget in the building.",
             "next_action": "Please fix the widget as soon as possible.",
-            "category": "approved",   # ← not a valid category
+            "category": "approved",
             "priority": "high",
             "requires_review": True,
         }
     )
+
     transport = _make_mock_transport(_lm_response(bad_payload))
     client = httpx.Client(transport=transport)
     provider = LmStudioProvider(http_client=client)
 
     with pytest.raises(ValueError, match="validation"):
-        provider.analyze(_req("Widget issue", "The widget in the building is broken and needs attention."))
+        provider.analyze(
+            _req(
+                "Widget issue",
+                "The widget in the building is broken and needs attention.",
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -200,13 +242,19 @@ def test_invalid_priority_raises() -> None:
             "summary": "Pipe is dripping water in the corridor near room 105.",
             "next_action": "Route to plumbing team for immediate inspection.",
             "category": "plumbing",
-            "priority": "done",     # ← not a valid priority
+            "priority": "done",
             "requires_review": True,
         }
     )
+
     transport = _make_mock_transport(_lm_response(bad_payload))
     client = httpx.Client(transport=transport)
     provider = LmStudioProvider(http_client=client)
 
     with pytest.raises(ValueError, match="validation"):
-        provider.analyze(_req("Water leak", "There is a visible water leak in the corridor near room 105."))
+        provider.analyze(
+            _req(
+                "Water leak",
+                "There is a visible water leak in the corridor near room 105.",
+            )
+        )
