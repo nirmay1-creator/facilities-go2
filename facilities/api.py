@@ -8,10 +8,7 @@ Endpoints:
 """
 from __future__ import annotations
 
-import os
-
 from fastapi import FastAPI, HTTPException
-from pydantic import ValidationError
 
 from facilities.database import get_history, init_db, save_analysis
 from facilities.models import AnalysisRequest, AnalysisResult, HistoryRecord
@@ -22,6 +19,7 @@ app = FastAPI(
     description="AI-powered campus facilities request triage using Qwen3-VL-8B via LM Studio.",
     version="1.0.0",
 )
+
 
 # Initialise DB and service on startup
 @app.on_event("startup")
