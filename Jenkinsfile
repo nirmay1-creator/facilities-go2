@@ -3,20 +3,23 @@ pipeline {
 
     environment {
         GROUP_ID = 'g02'
-        IMAGE_NAME = "facilities-triage-${GROUP_ID}"
+        IMAGE_NAME = 'facilities-triage-g02'
         PROVIDER_MODE = 'mock'
         DATABASE_PATH = '/tmp/jenkins_facilities.db'
+        REPORTS_DIR = 'reports'
+        VENV_DIR = '.venv'
         SMOKE_PORT = '18002'
         SMOKE_NAME = "facilities_smoke_${BUILD_NUMBER}"
-        REPORTS_DIR = 'reports'
-        VENV = '.venv/bin/activate'
-        IMAGE_TAG = "g02-${BUILD_NUMBER}-nogit"
+        INTEGRATION_PORT = '18003'
+        INTEGRATION_NAME = "facilities_int_${BUILD_NUMBER}"
+        IMAGE_TAG = "g02-${BUILD_NUMBER}-pending"
     }
 
     options {
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
     }
 
     stages {
@@ -24,82 +27,89 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh '''
-                    echo "Facilities Request Triage - CI Pipeline"
-                    echo "Branch : $(git rev-parse --abbrev-ref HEAD)"
-                    echo "Commit : $(git log -1 --oneline)"
-                    echo "Author : $(git log -1 --format='%an <%ae>')"
-                    echo "Date   : $(git log -1 --format='%cd' --date=short)"
-
-                    mkdir -p ${REPORTS_DIR}
-
-                    SHORT_COMMIT=$(git rev-parse --short=7 HEAD)
-                    echo "Short Commit : ${SHORT_COMMIT}"
-                    echo "IMAGE_TAG=${GROUP_ID}-${BUILD_NUMBER}-${SHORT_COMMIT}" > .build_env
-                '''
 
                 script {
-                    def shortCommit = sh(
+                    env.GIT_COMMIT_FULL = sh(
+                        script: 'git rev-parse HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.GIT_COMMIT_SHORT = sh(
                         script: 'git rev-parse --short=7 HEAD',
                         returnStdout: true
                     ).trim()
 
-                    env.IMAGE_TAG = "${env.GROUP_ID}-${env.BUILD_NUMBER}-${shortCommit}"
-                    env.GIT_SHORT = shortCommit
+                    env.IMAGE_TAG = "${env.GROUP_ID}-${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
                 }
+
+                sh '''
+                    echo "=============================================="
+                    echo "Facilities Request Triage - CI Pipeline"
+                    echo "=============================================="
+                    echo "Branch : $(git rev-parse --abbrev-ref HEAD)"
+                    echo "Commit : $(git log -1 --oneline)"
+                    echo "Author : $(git log -1 --format='%an <%ae>')"
+                    echo "Date   : $(git log -1 --format='%cd' --date=short)"
+                    echo "Image  : ${IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "=============================================="
+
+                    mkdir -p "${REPORTS_DIR}"
+                '''
             }
         }
 
         stage('Code Quality') {
             steps {
                 sh '''
-                    echo "[venv] Creating virtual environment..."
+                    set -e
 
-                    if [ ! -d ".venv" ]; then
-                        python3 -m venv .venv
+                    echo "=============================================="
+                    echo "Setting up Python environment"
+                    echo "=============================================="
+
+                    if [ ! -d "${VENV_DIR}" ]; then
+                        python3 -m venv "${VENV_DIR}"
                     fi
 
-                    . ${VENV}
+                    "${VENV_DIR}/bin/python" --version
 
-                    python --version
-                    pip --version
+                    "${VENV_DIR}/bin/python" -m pip install --upgrade pip -q
 
-                    pip install --upgrade pip -q
-                    pip install flake8 bandit -q
+                    if [ -f requirements.txt ]; then
+                        echo "Installing project dependencies..."
+                        "${VENV_DIR}/bin/pip" install -r requirements.txt -q
+                    fi
+
+                    echo "Installing CI tools..."
+                    "${VENV_DIR}/bin/pip" install flake8 bandit pytest pytest-cov -q
+
+                    echo "=============================================="
+                    echo "Running flake8"
+                    echo "=============================================="
+
+                    "${VENV_DIR}/bin/flake8" \
+                        facilities/ \
+                        tests/ \
+                        --max-line-length=120 \
+                        --exclude=__pycache__,.venv \
+                        --format="%(path)s:%(row)d:%(col)d: %(code)s %(text)s" \
+                        --tee \
+                        --output-file="${REPORTS_DIR}/flake8.txt"
+
+                    echo "flake8 passed."
+
+                    echo "=============================================="
+                    echo "Running Bandit security scan"
+                    echo "=============================================="
+
+                    "${VENV_DIR}/bin/bandit" \
+                        -r facilities/ \
+                        -ll \
+                        -f txt \
+                        -o "${REPORTS_DIR}/bandit.txt"
+
+                    echo "Bandit scan passed."
                 '''
-
-                parallel(
-                    'Lint - flake8': {
-                        sh '''
-                            . ${VENV}
-
-                            echo "[flake8] Linting..."
-                            flake8 facilities/ tests/ \
-                                --max-line-length=120 \
-                                --exclude=__pycache__,.venv \
-                                --format="%(path)s:%(row)d:%(col)d: %(code)s %(text)s" \
-                                --tee \
-                                --output-file=${REPORTS_DIR}/flake8.txt \
-                            || true
-
-                            echo "[flake8] Done."
-                        '''
-                    },
-                    'Security - bandit': {
-                        sh '''
-                            . ${VENV}
-
-                            echo "[bandit] Running security scan..."
-                            bandit -r facilities/ \
-                                -ll \
-                                -f txt \
-                                -o ${REPORTS_DIR}/bandit.txt \
-                            || true
-
-                            echo "[bandit] Done."
-                        '''
-                    }
-                )
             }
         }
 
@@ -111,25 +121,29 @@ pipeline {
 
             steps {
                 sh '''
-                    . ${VENV}
+                    set -e
 
-                    echo "[dependencies] Installing requirements..."
-                    pip install -r requirements.txt -q
+                    echo "=============================================="
+                    echo "Running Tests"
+                    echo "=============================================="
 
-                    echo "[pytest] Running test suite..."
-                    pytest tests/ \
-                        --junitxml=${REPORTS_DIR}/junit.xml \
+                    "${VENV_DIR}/bin/pytest" \
+                        tests/ \
+                        --junitxml="${REPORTS_DIR}/junit.xml" \
                         --tb=short \
                         -v \
                         --color=yes
 
-                    echo "[pytest] Tests completed."
+                    echo "Tests passed."
                 '''
             }
 
             post {
                 always {
-                    junit "${REPORTS_DIR}/junit.xml"
+                    junit(
+                        testResults: "${REPORTS_DIR}/junit.xml",
+                        allowEmptyResults: true
+                    )
                 }
 
                 failure {
@@ -141,37 +155,41 @@ pipeline {
         stage('Coverage Report') {
             environment {
                 PROVIDER_MODE = 'mock'
-                DATABASE_PATH = '/tmp/jenkins_cov.db'
+                DATABASE_PATH = '/tmp/jenkins_facilities_cov.db'
             }
 
             steps {
                 sh '''
-                    . ${VENV}
+                    set -e
 
-                    pip install pytest-cov -q
+                    echo "=============================================="
+                    echo "Generating Coverage Report"
+                    echo "=============================================="
 
-                    echo "[coverage] Generating coverage report..."
-
-                    pytest tests/ \
+                    "${VENV_DIR}/bin/pytest" \
+                        tests/ \
                         --cov=facilities \
                         --cov-report=term-missing \
                         --cov-report=html:${REPORTS_DIR}/htmlcov \
                         --cov-report=xml:${REPORTS_DIR}/coverage.xml \
                         -q
 
-                    echo "[coverage] Done."
+                    echo "Coverage report generated."
                 '''
             }
 
             post {
                 always {
-                    publishHTML(target: [
-                        reportName: 'Coverage Report',
-                        reportDir: "${REPORTS_DIR}/htmlcov",
-                        reportFiles: 'index.html',
-                        keepAll: true,
-                        alwaysLinkToLastBuild: true
-                    ])
+                    publishHTML(
+                        target: [
+                            reportName: 'Coverage Report',
+                            reportDir: "${REPORTS_DIR}/htmlcov",
+                            reportFiles: 'index.html',
+                            keepAll: true,
+                            alwaysLinkToLastBuild: true,
+                            allowMissing: true
+                        ]
+                    )
                 }
             }
         }
@@ -180,13 +198,20 @@ pipeline {
             steps {
                 dir('terraform') {
                     sh '''
-                        echo "[terraform] Initialising..."
-                        terraform init -backend=false -input=false -no-color
+                        set -e
 
-                        echo "[terraform] Validating..."
+                        echo "=============================================="
+                        echo "Terraform Validation"
+                        echo "=============================================="
+
+                        terraform init \
+                            -backend=false \
+                            -input=false \
+                            -no-color
+
                         terraform validate -no-color
 
-                        echo "[terraform] Configuration is valid."
+                        echo "Terraform validation passed."
                     '''
                 }
             }
@@ -195,22 +220,28 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    echo "[docker] Building image..."
+                    set -e
+
+                    echo "=============================================="
+                    echo "Building Docker Image"
+                    echo "=============================================="
+
                     echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
                     docker build \
                         --label "build.number=${BUILD_NUMBER}" \
-                        --label "git.commit=${GIT_COMMIT}" \
-                        --label "git.short=${GIT_SHORT}" \
+                        --label "git.commit=${GIT_COMMIT_FULL}" \
+                        --label "git.short=${GIT_COMMIT_SHORT}" \
                         --label "git.branch=${GIT_BRANCH}" \
                         --label "group.id=${GROUP_ID}" \
-                        -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                        -t ${IMAGE_NAME}:latest \
+                        --label "provider.mode=${PROVIDER_MODE}" \
+                        -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+                        -t "${IMAGE_NAME}:latest" \
                         .
 
-                    echo "[docker] Image built successfully."
+                    echo "Docker image built successfully."
 
-                    docker images ${IMAGE_NAME} \
+                    docker images "${IMAGE_NAME}" \
                         --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
                 '''
             }
@@ -219,52 +250,67 @@ pipeline {
         stage('Container Smoke Test') {
             steps {
                 sh '''
-                    echo "[smoke] Starting container..."
+                    set -e
+
+                    echo "=============================================="
+                    echo "Container Smoke Test"
+                    echo "=============================================="
+
+                    docker rm -f "${SMOKE_NAME}" 2>/dev/null || true
 
                     docker run -d \
-                        --name ${SMOKE_NAME} \
-                        -p ${SMOKE_PORT}:8000 \
+                        --name "${SMOKE_NAME}" \
+                        -p "${SMOKE_PORT}:8000" \
                         -e PROVIDER_MODE=mock \
                         -e DATABASE_PATH=/data/smoke.db \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-
-                    echo "[smoke] Waiting for API..."
+                        "${IMAGE_NAME}:${IMAGE_TAG}"
 
                     READY=0
+
+                    echo "Waiting for API..."
 
                     for i in $(seq 1 20); do
                         sleep 2
 
-                        if curl -sf http://localhost:${SMOKE_PORT}/health > /dev/null 2>&1; then
+                        if curl -sf \
+                            "http://localhost:${SMOKE_PORT}/health" \
+                            > /dev/null 2>&1; then
+
                             READY=1
-                            echo "[smoke] API ready after $((i * 2)) seconds."
+                            echo "API ready after $((i * 2)) seconds."
                             break
                         fi
 
-                        echo "[smoke] Attempt ${i}/20..."
+                        echo "Attempt ${i}/20..."
                     done
 
                     if [ "$READY" -ne 1 ]; then
-                        echo "[smoke] ERROR: API did not start."
-                        docker logs ${SMOKE_NAME}
+                        echo "ERROR: API did not start."
+
+                        docker logs "${SMOKE_NAME}"
+
                         exit 1
                     fi
 
-                    HEALTH=$(curl -sf http://localhost:${SMOKE_PORT}/health)
+                    HEALTH=$(curl -sf \
+                        "http://localhost:${SMOKE_PORT}/health")
 
-                    echo "[smoke] Health response:"
+                    echo "Health response:"
                     echo "${HEALTH}"
 
-                    echo "${HEALTH}" | grep '"status":"ok"'
+                    echo "${HEALTH}" | grep -q '"status":"ok"'
 
-                    echo "[smoke] Health check passed."
+                    echo "Health check passed."
                 '''
             }
 
             post {
                 always {
-                    sh 'docker rm -f ${SMOKE_NAME} 2>/dev/null || true'
-                    echo "[smoke] Container cleaned up."
+                    sh '''
+                        docker rm -f "${SMOKE_NAME}" 2>/dev/null || true
+                    '''
+
+                    echo "Smoke container cleaned up."
                 }
             }
         }
@@ -272,70 +318,101 @@ pipeline {
         stage('Integration Check') {
             steps {
                 sh '''
-                    INT_NAME="facilities_int_${BUILD_NUMBER}"
+                    set -e
 
-                    echo "[integration] Starting container..."
+                    echo "=============================================="
+                    echo "Integration Check"
+                    echo "=============================================="
+
+                    docker rm -f "${INTEGRATION_NAME}" 2>/dev/null || true
 
                     docker run -d \
-                        --name ${INT_NAME} \
-                        -p 18003:8000 \
+                        --name "${INTEGRATION_NAME}" \
+                        -p "${INTEGRATION_PORT}:8000" \
                         -e PROVIDER_MODE=mock \
                         -e DATABASE_PATH=/data/int.db \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-
-                    echo "[integration] Waiting for API..."
+                        "${IMAGE_NAME}:${IMAGE_TAG}"
 
                     READY=0
+
+                    echo "Waiting for API..."
 
                     for i in $(seq 1 20); do
                         sleep 2
 
-                        if curl -sf http://localhost:18003/health > /dev/null 2>&1; then
+                        if curl -sf \
+                            "http://localhost:${INTEGRATION_PORT}/health" \
+                            > /dev/null 2>&1; then
+
                             READY=1
                             break
                         fi
+
+                        echo "Attempt ${i}/20..."
                     done
 
                     if [ "$READY" -ne 1 ]; then
-                        echo "[integration] API failed to start."
-                        docker logs ${INT_NAME}
+                        echo "ERROR: Integration container did not start."
+
+                        docker logs "${INTEGRATION_NAME}"
+
                         exit 1
                     fi
 
-                    echo "[integration] Sending test request..."
+                    echo "API ready."
+
+                    echo "Sending integration request..."
 
                     RESPONSE=$(curl -sf \
                         -X POST \
-                        http://localhost:18003/api/analyze \
+                        "http://localhost:${INTEGRATION_PORT}/api/analyze" \
                         -H "Content-Type: application/json" \
-                        -d '{"subject":"Lights out in lab","request_text":"The overhead lights in Lab 3B have failed completely."}')
+                        -d '{
+                            "subject": "Lights out in lab",
+                            "request_text": "The overhead lights in Lab 3B have failed completely."
+                        }')
 
-                    echo "[integration] Response:"
+                    echo "Response:"
                     echo "${RESPONSE}"
 
-                    echo "${RESPONSE}" | grep -q '"category"' \
-                        || (echo "FAIL: missing category" && exit 1)
+                    echo "Checking response fields..."
 
-                    echo "${RESPONSE}" | grep -q '"priority"' \
-                        || (echo "FAIL: missing priority" && exit 1)
+                    echo "${RESPONSE}" | grep -q '"category"' || {
+                        echo "FAIL: missing category"
+                        exit 1
+                    }
 
-                    echo "${RESPONSE}" | grep -q '"summary"' \
-                        || (echo "FAIL: missing summary" && exit 1)
+                    echo "${RESPONSE}" | grep -q '"priority"' || {
+                        echo "FAIL: missing priority"
+                        exit 1
+                    }
 
-                    echo "${RESPONSE}" | grep -q '"next_action"' \
-                        || (echo "FAIL: missing next_action" && exit 1)
+                    echo "${RESPONSE}" | grep -q '"summary"' || {
+                        echo "FAIL: missing summary"
+                        exit 1
+                    }
 
-                    echo "${RESPONSE}" | grep -q '"requires_review":true' \
-                        || (echo "FAIL: requires_review is not true" && exit 1)
+                    echo "${RESPONSE}" | grep -q '"next_action"' || {
+                        echo "FAIL: missing next_action"
+                        exit 1
+                    }
 
-                    echo "[integration] All response fields validated."
+                    echo "${RESPONSE}" | grep -q '"requires_review":true' || {
+                        echo "FAIL: requires_review is not true"
+                        exit 1
+                    }
+
+                    echo "Integration check passed."
                 '''
             }
 
             post {
                 always {
-                    sh 'docker rm -f facilities_int_${BUILD_NUMBER} 2>/dev/null || true'
-                    echo "[integration] Container cleaned up."
+                    sh '''
+                        docker rm -f "${INTEGRATION_NAME}" 2>/dev/null || true
+                    '''
+
+                    echo "Integration container cleaned up."
                 }
             }
         }
@@ -343,29 +420,38 @@ pipeline {
         stage('Archive') {
             steps {
                 sh '''
-                    echo "[archive] Creating build manifest..."
+                    set -e
 
-                    cat > ${REPORTS_DIR}/build_manifest.txt << EOF
+                    echo "=============================================="
+                    echo "Creating Build Manifest"
+                    echo "=============================================="
+
+                    mkdir -p "${REPORTS_DIR}"
+
+                    cat > "${REPORTS_DIR}/build_manifest.txt" << EOF
 Facilities Request Triage - Build Manifest
 ==========================================
-Group      : ${GROUP_ID}
-Build      : ${BUILD_NUMBER}
-Image Name : ${IMAGE_NAME}
-Image Tag  : ${IMAGE_TAG}
-Git Branch : ${GIT_BRANCH}
-Git Commit : ${GIT_COMMIT}
-Build URL  : ${BUILD_URL}
-Timestamp  : $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-Provider   : mock (CI) / lmstudio (production)
+Group           : ${GROUP_ID}
+Build           : ${BUILD_NUMBER}
+Image Name      : ${IMAGE_NAME}
+Image Tag       : ${IMAGE_TAG}
+Git Branch      : ${GIT_BRANCH}
+Git Commit      : ${GIT_COMMIT_FULL}
+Git Short Hash  : ${GIT_COMMIT_SHORT}
+Build URL       : ${BUILD_URL}
+Timestamp       : $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+Provider        : mock (CI)
+Production      : lmstudio
 EOF
 
-                    cat ${REPORTS_DIR}/build_manifest.txt
+                    cat "${REPORTS_DIR}/build_manifest.txt"
                 '''
 
-                archiveArtifacts \
-                    artifacts: "${REPORTS_DIR}/**", \
-                    fingerprint: true, \
+                archiveArtifacts(
+                    artifacts: "${REPORTS_DIR}/**",
+                    fingerprint: true,
                     allowEmptyArchive: true
+                )
             }
         }
     }
@@ -373,28 +459,39 @@ EOF
     post {
         success {
             echo """
+==============================================
 PIPELINE SUCCESS
+==============================================
 Image: ${IMAGE_NAME}:${IMAGE_TAG}
 All stages completed successfully.
+==============================================
 """
         }
 
         failure {
             echo """
+==============================================
 PIPELINE FAILED
-Check the failed stage above.
+==============================================
+Check the failed stage in Console Output.
+==============================================
 """
         }
 
         unstable {
-            echo "Build is UNSTABLE. Review the test and JUnit reports."
+            echo "Build is UNSTABLE. Review the test reports."
         }
 
         always {
+            sh '''
+                docker rm -f "${SMOKE_NAME}" 2>/dev/null || true
+                docker rm -f "${INTEGRATION_NAME}" 2>/dev/null || true
+                rm -rf "${VENV_DIR}" 2>/dev/null || true
+            '''
+
             cleanWs(
-                patterns: [
-                    [pattern: '.venv/**', type: 'INCLUDE']
-                ]
+                deleteDirs: true,
+                notFailBuild: true
             )
         }
     }
