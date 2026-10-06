@@ -9,10 +9,6 @@ Also tests:
 """
 from __future__ import annotations
 
-import json
-import os
-
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -116,8 +112,17 @@ def test_analyze_endpoint_returns_history_record_shape(api_client: TestClient) -
     )
     assert resp.status_code == 200
     keys = resp.json().keys()
-    for expected in ("id", "subject", "request_text", "summary", "next_action",
-                     "category", "priority", "requires_review", "created_at"):
+    for expected in (
+        "id",
+        "subject",
+        "request_text",
+        "summary",
+        "next_action",
+        "category",
+        "priority",
+        "requires_review",
+        "created_at",
+    ):
         assert expected in keys
 
 
@@ -155,6 +160,7 @@ def test_failed_inference_returns_502(api_client: TestClient) -> None:
 def test_failed_inference_does_not_create_history(api_client: TestClient) -> None:
     """After a failed inference, history count must not increase."""
     from unittest.mock import patch
+
     from facilities.database import get_history
 
     before = len(get_history())
