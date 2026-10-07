@@ -8,10 +8,13 @@ pipeline {
         DATABASE_PATH = '/tmp/jenkins_facilities.db'
         REPORTS_DIR = 'reports'
         VENV_DIR = '.venv'
+
         SMOKE_PORT = '18002'
         SMOKE_NAME = "facilities_smoke_${BUILD_NUMBER}"
+
         INTEGRATION_PORT = '18003'
         INTEGRATION_NAME = "facilities_int_${BUILD_NUMBER}"
+
         IMAGE_TAG = "g02-${BUILD_NUMBER}-pending"
     }
 
@@ -260,20 +263,20 @@ pipeline {
 
                     docker run -d \
                         --name "${SMOKE_NAME}" \
-                        -p "${SMOKE_PORT}:8000" \
                         -e PROVIDER_MODE=mock \
                         -e DATABASE_PATH=/data/smoke.db \
                         "${IMAGE_NAME}:${IMAGE_TAG}"
 
                     READY=0
 
-                    echo "Waiting for API..."
+                    echo "Waiting for API inside container..."
 
                     for i in $(seq 1 20); do
                         sleep 2
 
-                        if curl -sf \
-                            "http://localhost:${SMOKE_PORT}/health" \
+                        if docker exec "${SMOKE_NAME}" \
+                            curl -sf \
+                            http://localhost:8000/health \
                             > /dev/null 2>&1; then
 
                             READY=1
@@ -287,13 +290,26 @@ pipeline {
                     if [ "$READY" -ne 1 ]; then
                         echo "ERROR: API did not start."
 
-                        docker logs "${SMOKE_NAME}"
+                        echo "=============================================="
+                        echo "Container Logs"
+                        echo "=============================================="
+
+                        docker logs "${SMOKE_NAME}" || true
+
+                        echo "=============================================="
+                        echo "Container Status"
+                        echo "=============================================="
+
+                        docker inspect "${SMOKE_NAME}" \
+                            --format '{{.State.Status}} - ExitCode={{.State.ExitCode}}' \
+                            || true
 
                         exit 1
                     fi
 
-                    HEALTH=$(curl -sf \
-                        "http://localhost:${SMOKE_PORT}/health")
+                    HEALTH=$(docker exec "${SMOKE_NAME}" \
+                        curl -sf \
+                        http://localhost:8000/health)
 
                     echo "Health response:"
                     echo "${HEALTH}"
@@ -301,12 +317,14 @@ pipeline {
                     echo "${HEALTH}" | grep -q '"status":"ok"'
 
                     echo "Health check passed."
+                    echo "Container smoke test passed."
                 '''
             }
 
             post {
                 always {
                     sh '''
+                        docker logs "${SMOKE_NAME}" 2>/dev/null || true
                         docker rm -f "${SMOKE_NAME}" 2>/dev/null || true
                     '''
 
@@ -328,23 +346,24 @@ pipeline {
 
                     docker run -d \
                         --name "${INTEGRATION_NAME}" \
-                        -p "${INTEGRATION_PORT}:8000" \
                         -e PROVIDER_MODE=mock \
                         -e DATABASE_PATH=/data/int.db \
                         "${IMAGE_NAME}:${IMAGE_TAG}"
 
                     READY=0
 
-                    echo "Waiting for API..."
+                    echo "Waiting for integration API inside container..."
 
                     for i in $(seq 1 20); do
                         sleep 2
 
-                        if curl -sf \
-                            "http://localhost:${INTEGRATION_PORT}/health" \
+                        if docker exec "${INTEGRATION_NAME}" \
+                            curl -sf \
+                            http://localhost:8000/health \
                             > /dev/null 2>&1; then
 
                             READY=1
+                            echo "Integration API ready after $((i * 2)) seconds."
                             break
                         fi
 
@@ -354,28 +373,37 @@ pipeline {
                     if [ "$READY" -ne 1 ]; then
                         echo "ERROR: Integration container did not start."
 
-                        docker logs "${INTEGRATION_NAME}"
+                        echo "=============================================="
+                        echo "Integration Container Logs"
+                        echo "=============================================="
+
+                        docker logs "${INTEGRATION_NAME}" || true
 
                         exit 1
                     fi
 
                     echo "API ready."
 
-                    echo "Sending integration request..."
+                    echo "=============================================="
+                    echo "Sending Integration Request"
+                    echo "=============================================="
 
-                    RESPONSE=$(curl -sf \
+                    RESPONSE=$(docker exec "${INTEGRATION_NAME}" \
+                        curl -sf \
                         -X POST \
-                        "http://localhost:${INTEGRATION_PORT}/api/analyze" \
                         -H "Content-Type: application/json" \
                         -d '{
                             "subject": "Lights out in lab",
                             "request_text": "The overhead lights in Lab 3B have failed completely."
-                        }')
+                        }' \
+                        http://localhost:8000/api/analyze)
 
                     echo "Response:"
                     echo "${RESPONSE}"
 
-                    echo "Checking response fields..."
+                    echo "=============================================="
+                    echo "Checking Response Fields"
+                    echo "=============================================="
 
                     echo "${RESPONSE}" | grep -q '"category"' || {
                         echo "FAIL: missing category"
@@ -409,6 +437,7 @@ pipeline {
             post {
                 always {
                     sh '''
+                        docker logs "${INTEGRATION_NAME}" 2>/dev/null || true
                         docker rm -f "${INTEGRATION_NAME}" 2>/dev/null || true
                     '''
 
